@@ -1,0 +1,202 @@
+name: Sync Upstream and Build
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if no changes'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  UPSTREAM_REPO: router-for-me/CLIProxyAPI
+  UPSTREAM_BRANCH: main
+  DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'martinfeng/cli-proxy-api' }}
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.sync.outputs.has_changes }}
+      new_version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git || true
+          git fetch upstream ${{ env.UPSTREAM_BRANCH }}
+
+      - name: Check for upstream changes
+        id: check
+        run: |
+          # Get the merge base and upstream head
+          MERGE_BASE=$(git merge-base HEAD upstream/${{ env.UPSTREAM_BRANCH }}) || true
+          UPSTREAM_HEAD=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+
+          if [ "$MERGE_BASE" = "$UPSTREAM_HEAD" ]; then
+            echo "No new commits from upstream"
+            echo "has_upstream_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "New commits available from upstream"
+            echo "has_upstream_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Merge upstream changes
+        id: sync
+        run: |
+          if [ "${{ steps.check.outputs.has_upstream_changes }}" = "true" ]; then
+            echo "Attempting to merge upstream/${{ env.UPSTREAM_BRANCH }}..."
+
+            if git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit; then
+              echo "Merge successful"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              git push origin ${{ github.ref_name }}
+            else
+              echo "::error::Merge conflict detected! Manual resolution required."
+              git merge --abort
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+          else
+            echo "No changes to merge"
+            if [ "${{ inputs.force_build }}" = "true" ]; then
+              echo "Force build requested"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Generate version
+        id: version
+        if: steps.sync.outputs.has_changes == 'true' || inputs.force_build == 'true'
+        run: |
+          # Use date-based version for fork builds
+          VERSION="fork-$(date -u +%Y%m%d-%H%M%S)"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+  build-and-push:
+    needs: sync-upstream
+    if: needs.sync-upstream.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Generate Build Metadata
+        run: |
+          echo "VERSION=${{ needs.sync-upstream.outputs.new_version }}" >> $GITHUB_ENV
+          echo "COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+
+      - name: Build and push (multi-arch)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ env.COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:latest
+            ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create sync summary
+        run: |
+          echo "## Sync and Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ env.COMMIT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Date:** ${{ env.BUILD_DATE }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Image:** \`${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Pull Command" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.DOCKERHUB_REPO }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  notify-conflict:
+    needs: sync-upstream
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue for merge conflict
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🔀 Upstream Sync Failed - Merge Conflict';
+            const body = `## Upstream Sync Failed
+
+            The automatic sync with upstream repository failed due to a merge conflict.
+
+            ### Details
+            - **Upstream:** ${{ env.UPSTREAM_REPO }}
+            - **Branch:** ${{ env.UPSTREAM_BRANCH }}
+            - **Workflow Run:** [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            ### Action Required
+            Please resolve the merge conflict manually:
+
+            \`\`\`bash
+            git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+            git fetch upstream ${{ env.UPSTREAM_BRANCH }}
+            git merge upstream/${{ env.UPSTREAM_BRANCH }}
+            # Resolve conflicts...
+            git push origin main
+            \`\`\`
+
+            After resolving, you can trigger a manual build from the Actions tab.
+            `;
+
+            // Check if similar issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-sync'
+            });
+
+            const existingIssue = issues.data.find(i => i.title === title);
+
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['upstream-sync', 'needs-attention']
+              });
+            }
