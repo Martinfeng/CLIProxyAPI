@@ -148,6 +148,48 @@ jobs:
           echo "docker pull ${{ env.DOCKERHUB_REPO }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Generate release notes
+          cat > release-notes.md << 'EOF'
+          ## Docker Image
+
+          ```bash
+          docker pull ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}
+          # or
+          docker pull ${{ env.DOCKERHUB_REPO }}:latest
+          ```
+
+          ## Supported Architectures
+
+          - `linux/amd64` - Intel/AMD processors
+          - `linux/arm64` - Apple Silicon (M1/M2/M3/M4), ARM servers
+
+          ## Fork Enhancements
+
+          This fork includes the following enhancements over upstream:
+
+          - **Usage Statistics Persistence**: Automatically saves usage statistics to disk, surviving container restarts
+            - Auto-save interval: 5 minutes (configurable via `USAGE_STATS_AUTOSAVE_INTERVAL`)
+            - Storage path: `$AUTH_DIR/usage-stats.json` (configurable via `USAGE_STATS_PATH`)
+
+          ## Build Info
+
+          - **Version:** ${{ env.VERSION }}
+          - **Commit:** ${{ env.COMMIT }}
+          - **Build Date:** ${{ env.BUILD_DATE }}
+          - **Upstream:** [${{ env.UPSTREAM_REPO }}](https://github.com/${{ env.UPSTREAM_REPO }})
+          EOF
+
+          # Create release (delete existing if same version)
+          gh release delete "${{ env.VERSION }}" --yes 2>/dev/null || true
+          gh release create "${{ env.VERSION }}" \
+            --title "Release ${{ env.VERSION }}" \
+            --notes-file release-notes.md \
+            --latest
+
   notify-conflict:
     needs: sync-upstream
     if: failure()
