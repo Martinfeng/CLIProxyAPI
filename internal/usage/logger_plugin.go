@@ -15,6 +15,10 @@ import (
 	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 )
 
+// usageRetentionDays defines how many days of usage data to retain.
+// Data older than this will be pruned during save/load operations.
+const usageRetentionDays = 32
+
 var statisticsEnabled atomic.Bool
 
 func init() {
@@ -280,6 +284,109 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	}
 
 	return result
+}
+
+// PruneRetention removes request details older than the retention window and rebuilds aggregates.
+// This ensures the statistics data doesn't grow unbounded over time.
+func (s *RequestStatistics) PruneRetention(now time.Time) {
+	if s == nil {
+		return
+	}
+
+	cutoff := now.AddDate(0, 0, -usageRetentionDays)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Reset all aggregates - they will be rebuilt from retained details
+	s.totalRequests = 0
+	s.successCount = 0
+	s.failureCount = 0
+	s.totalTokens = 0
+	s.requestsByDay = make(map[string]int64)
+	s.requestsByHour = make(map[int]int64)
+	s.tokensByDay = make(map[string]int64)
+	s.tokensByHour = make(map[int]int64)
+
+	for apiName, stats := range s.apis {
+		if stats == nil {
+			delete(s.apis, apiName)
+			continue
+		}
+		stats.TotalRequests = 0
+		stats.TotalTokens = 0
+
+		if stats.Models == nil {
+			delete(s.apis, apiName)
+			continue
+		}
+
+		for modelName, modelStatsValue := range stats.Models {
+			if modelStatsValue == nil {
+				delete(stats.Models, modelName)
+				continue
+			}
+
+			// Filter details to keep only those within retention window
+			kept := modelStatsValue.Details[:0]
+			var modelRequests int64
+			var modelTokens int64
+
+			for _, detail := range modelStatsValue.Details {
+				timestamp := detail.Timestamp
+				if timestamp.IsZero() {
+					timestamp = now
+					detail.Timestamp = timestamp
+				}
+				if timestamp.Before(cutoff) {
+					continue // Skip old data
+				}
+
+				tokens := normaliseTokenStats(detail.Tokens)
+				totalTokens := tokens.TotalTokens
+				if totalTokens < 0 {
+					totalTokens = 0
+				}
+				detail.Tokens = tokens
+
+				kept = append(kept, detail)
+				modelRequests++
+				modelTokens += totalTokens
+
+				// Rebuild global aggregates
+				s.totalRequests++
+				if detail.Failed {
+					s.failureCount++
+				} else {
+					s.successCount++
+				}
+				s.totalTokens += totalTokens
+
+				dayKey := timestamp.Format("2006-01-02")
+				hourKey := timestamp.Hour()
+
+				s.requestsByDay[dayKey]++
+				s.requestsByHour[hourKey]++
+				s.tokensByDay[dayKey] += totalTokens
+				s.tokensByHour[hourKey] += totalTokens
+			}
+
+			if len(kept) == 0 {
+				delete(stats.Models, modelName)
+				continue
+			}
+
+			modelStatsValue.Details = kept
+			modelStatsValue.TotalRequests = modelRequests
+			modelStatsValue.TotalTokens = modelTokens
+			stats.TotalRequests += modelRequests
+			stats.TotalTokens += modelTokens
+		}
+
+		if len(stats.Models) == 0 {
+			delete(s.apis, apiName)
+		}
+	}
 }
 
 type MergeResult struct {

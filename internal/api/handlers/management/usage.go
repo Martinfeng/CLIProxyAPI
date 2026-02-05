@@ -24,6 +24,7 @@ type usageImportPayload struct {
 func (h *Handler) GetUsageStatistics(c *gin.Context) {
 	var snapshot usage.StatisticsSnapshot
 	if h != nil && h.usageStats != nil {
+		h.usageStats.PruneRetention(time.Now())
 		snapshot = h.usageStats.Snapshot()
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -36,6 +37,7 @@ func (h *Handler) GetUsageStatistics(c *gin.Context) {
 func (h *Handler) ExportUsageStatistics(c *gin.Context) {
 	var snapshot usage.StatisticsSnapshot
 	if h != nil && h.usageStats != nil {
+		h.usageStats.PruneRetention(time.Now())
 		snapshot = h.usageStats.Snapshot()
 	}
 	c.JSON(http.StatusOK, usageExportPayload{
@@ -69,6 +71,7 @@ func (h *Handler) ImportUsageStatistics(c *gin.Context) {
 	}
 
 	result := h.usageStats.MergeSnapshot(payload.Usage)
+	h.usageStats.PruneRetention(time.Now())
 	snapshot := h.usageStats.Snapshot()
 	c.JSON(http.StatusOK, gin.H{
 		"added":           result.Added,

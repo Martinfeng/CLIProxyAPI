@@ -178,6 +178,7 @@ func (p *Persistence) load() error {
 	stats := GetRequestStatistics()
 	if stats != nil {
 		result := stats.MergeSnapshot(payload.Usage)
+		stats.PruneRetention(time.Now())
 		log.Infof("Loaded usage statistics: added=%d, skipped=%d (duplicates)", result.Added, result.Skipped)
 	}
 
@@ -194,6 +195,9 @@ func (p *Persistence) save() error {
 	if stats == nil {
 		return nil
 	}
+
+	// Prune old data before saving
+	stats.PruneRetention(time.Now())
 
 	snapshot := stats.Snapshot()
 	payload := persistencePayload{
