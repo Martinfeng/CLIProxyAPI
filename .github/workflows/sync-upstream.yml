@@ -84,10 +84,29 @@ jobs:
       - name: Generate version
         id: version
         if: steps.sync.outputs.has_changes == 'true' || inputs.force_build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Use date-based version for fork builds
-          VERSION="fork-$(date -u +%Y%m%d-%H%M%S)"
+          # Get upstream latest release version
+          UPSTREAM_VERSION=$(gh release view --repo ${{ env.UPSTREAM_REPO }} --json tagName -q '.tagName' 2>/dev/null || echo "v0.0.0")
+          echo "Upstream version: $UPSTREAM_VERSION"
+
+          # Get our latest release to determine fork number
+          LATEST_RELEASE=$(gh release view --json tagName -q '.tagName' 2>/dev/null || echo "")
+          echo "Our latest release: $LATEST_RELEASE"
+
+          # Extract fork number if exists, otherwise start at 1
+          if [[ "$LATEST_RELEASE" =~ ^${UPSTREAM_VERSION}-fork\.([0-9]+)$ ]]; then
+            # Same upstream version, increment fork number
+            FORK_NUM=$((${BASH_REMATCH[1]} + 1))
+          else
+            # New upstream version or first release, start at 1
+            FORK_NUM=1
+          fi
+
+          VERSION="${UPSTREAM_VERSION}-fork.${FORK_NUM}"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "upstream_version=$UPSTREAM_VERSION" >> $GITHUB_OUTPUT
           echo "Generated version: $VERSION"
 
   build-and-push:
