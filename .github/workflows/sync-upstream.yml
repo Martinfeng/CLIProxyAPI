@@ -190,6 +190,15 @@ jobs:
             --notes-file release-notes.md \
             --latest
 
+      - name: Update Docker Hub README
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_REPO }}
+          readme-filepath: ./DOCKER_README.md
+          short-description: "CLI Proxy API Fork with usage persistence and 32-day retention"
+
   notify-conflict:
     needs: sync-upstream
     if: failure()
