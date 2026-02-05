@@ -477,6 +477,6 @@ func main() {
 		}
 		// Start the main proxy service
 		managementasset.StartAutoUpdater(context.Background(), configFilePath)
-		cmd.StartService(cfg, configFilePath, password)
+		cmd.StartServiceWithPersistence(cfg, configFilePath, password)
 	}
 }
