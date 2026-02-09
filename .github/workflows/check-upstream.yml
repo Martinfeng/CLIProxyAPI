@@ -1,0 +1,56 @@
+name: Check Upstream Release
+
+on:
+  schedule:
+    # Run every 2 hours
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+
+env:
+  UPSTREAM_REPO: router-for-me/CLIProxyAPI
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check upstream for new release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get upstream latest release tag
+          UPSTREAM_TAG=$(gh release view --repo ${{ env.UPSTREAM_REPO }} --json tagName -q '.tagName' 2>/dev/null || echo "")
+          UPSTREAM_COMMIT=$(gh api repos/${{ env.UPSTREAM_REPO }}/commits/${{ github.event.repository.default_branch || 'main' }} -q '.sha' 2>/dev/null | head -c 7 || echo "")
+          echo "Upstream latest release: $UPSTREAM_TAG"
+          echo "Upstream latest commit: $UPSTREAM_COMMIT"
+
+          # Get our latest release tag
+          OUR_TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q '.tagName' 2>/dev/null || echo "")
+          echo "Our latest release: $OUR_TAG"
+
+          # Extract upstream version from our tag (e.g., v6.7.48 from v6.7.48-fork.1)
+          OUR_UPSTREAM_VERSION=$(echo "$OUR_TAG" | sed 's/-fork\.[0-9]*$//')
+          echo "Our upstream base: $OUR_UPSTREAM_VERSION"
+
+          # Check if upstream has a newer release
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "Cannot determine upstream release"
+            echo "needs_sync=false" >> $GITHUB_OUTPUT
+          elif [ "$UPSTREAM_TAG" != "$OUR_UPSTREAM_VERSION" ]; then
+            echo "New upstream release detected: $UPSTREAM_TAG (ours: $OUR_UPSTREAM_VERSION)"
+            echo "needs_sync=true" >> $GITHUB_OUTPUT
+          else
+            # Same release tag, check if upstream main has new commits
+            FORK_MERGE_BASE=$(gh api repos/${{ github.repository }}/compare/${OUR_TAG}...HEAD -q '.ahead_by' 2>/dev/null || echo "0")
+            echo "Fork commits ahead: $FORK_MERGE_BASE"
+            echo "needs_sync=false" >> $GITHUB_OUTPUT
+            echo "No new upstream release"
+          fi
+
+      - name: Trigger sync workflow
+        if: steps.check.outputs.needs_sync == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run sync-upstream.yml --repo ${{ github.repository }}
+          echo "Triggered sync-upstream workflow"
