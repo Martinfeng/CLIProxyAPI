@@ -170,7 +170,9 @@ jobs:
         run: |
           # Generate release notes
           cat > release-notes.md << 'EOF'
-          ## Docker Image
+          本项目是 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 Fork 版本。如不需要以下增强功能，建议使用[原项目](https://github.com/router-for-me/CLIProxyAPI)。
+
+          ## Docker 镜像
 
           ```bash
           docker pull ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}
@@ -178,25 +180,25 @@ jobs:
           docker pull ${{ env.DOCKERHUB_REPO }}:latest
           ```
 
-          ## Supported Architectures
+          ## 与原项目的区别
 
-          - `linux/amd64` - Intel/AMD processors
-          - `linux/arm64` - Apple Silicon (M1/M2/M3/M4), ARM servers
+          | 功能 | 原项目 | 本 Fork |
+          |------|--------|---------|
+          | 统计数据持久化 | 仅内存存储，容器重启后丢失 | 自动保存到磁盘，重启后恢复 |
+          | 数据保留策略 | 无限累积 | 自动清理 32 天前的数据 |
+          | 上游同步 | - | 每 2 小时自动检查并合并上游更新 |
 
-          ## Fork Enhancements
+          ## 支持架构
 
-          This fork includes the following enhancements over upstream:
+          - `linux/amd64` — Intel / AMD 处理器
+          - `linux/arm64` — Apple Silicon (M1/M2/M3/M4)、ARM 服务器
 
-          - **Usage Statistics Persistence**: Automatically saves usage statistics to disk, surviving container restarts
-            - Auto-save interval: 5 minutes (configurable via `USAGE_STATS_AUTOSAVE_INTERVAL`)
-            - Storage path: `$AUTH_DIR/usage-stats.json` (configurable via `USAGE_STATS_PATH`)
+          ## 构建信息
 
-          ## Build Info
-
-          - **Version:** ${{ env.VERSION }}
+          - **版本:** ${{ env.VERSION }}
           - **Commit:** ${{ env.COMMIT }}
-          - **Build Date:** ${{ env.BUILD_DATE }}
-          - **Upstream:** [${{ env.UPSTREAM_REPO }}](https://github.com/${{ env.UPSTREAM_REPO }})
+          - **构建时间:** ${{ env.BUILD_DATE }}
+          - **上游项目:** [${{ env.UPSTREAM_REPO }}](https://github.com/${{ env.UPSTREAM_REPO }})
           EOF
 
           # Create release (delete existing if same version)
