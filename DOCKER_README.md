@@ -14,6 +14,22 @@
 
 ## 快速开始
 
+### 方式一：使用环境变量（推荐）
+
+在项目的 `docker-compose.yml` 同目录下，将 `.env.example` 复制为 `.env`，并添加一行：
+
+```bash
+CLI_PROXY_IMAGE=kaelsen/cli-proxy-api:latest
+```
+
+然后直接启动，Docker Compose 会自动拉取最新镜像：
+
+```bash
+docker compose up -d
+```
+
+### 方式二：手动拉取
+
 ```bash
 docker pull kaelsen/cli-proxy-api:latest
 ```
