@@ -9,6 +9,10 @@ on:
         default: 'false'
         type: boolean
 
+permissions:
+  contents: write
+  issues: write
+
 env:
   UPSTREAM_REPO: router-for-me/CLIProxyAPI
   UPSTREAM_BRANCH: main
@@ -57,14 +61,38 @@ jobs:
         run: |
           if [ "${{ steps.check.outputs.has_upstream_changes }}" = "true" ]; then
             echo "Attempting to merge upstream/${{ env.UPSTREAM_BRANCH }}..."
+            PRE_MERGE_HEAD=$(git rev-parse HEAD)
 
-            if git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-edit; then
+            # Keep fork-owned workflow files unchanged because pushes that modify
+            # .github/workflows/* can be rejected without extra workflow scope.
+            if git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-ff --no-commit; then
+              if [ -d .github/workflows ]; then
+                git restore --staged --worktree --source="$PRE_MERGE_HEAD" .github/workflows || true
+              fi
+
+              if git diff --cached --quiet; then
+                echo "No effective changes after preserving local workflow files"
+                git merge --abort || true
+                if [ "${{ inputs.force_build }}" = "true" ]; then
+                  echo "Force build requested"
+                  echo "has_changes=true" >> $GITHUB_OUTPUT
+                else
+                  echo "has_changes=false" >> $GITHUB_OUTPUT
+                fi
+                exit 0
+              fi
+
+              git commit --no-edit
               echo "Merge successful"
               echo "has_changes=true" >> $GITHUB_OUTPUT
-              git push origin ${{ github.ref_name }}
+
+              if ! git push origin ${{ github.ref_name }}; then
+                echo "::error::Push failed. Check token/repository permissions."
+                exit 1
+              fi
             else
               echo "::error::Merge conflict detected! Manual resolution required."
-              git merge --abort
+              git merge --abort || true
               echo "has_changes=false" >> $GITHUB_OUTPUT
               exit 1
             fi
@@ -219,17 +247,18 @@ jobs:
 
   notify-conflict:
     needs: sync-upstream
-    if: failure()
+    if: needs.sync-upstream.result == 'failure'
     runs-on: ubuntu-latest
     steps:
-      - name: Create issue for merge conflict
+      - name: Create issue for sync failure (if Issues enabled)
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
-            const title = '🔀 Upstream Sync Failed - Merge Conflict';
+            const title = '🔀 Upstream Sync Failed';
             const body = `## Upstream Sync Failed
 
-            The automatic sync with upstream repository failed due to a merge conflict.
+            The automatic sync with upstream repository failed.
 
             ### Details
             - **Upstream:** ${{ env.UPSTREAM_REPO }}
@@ -237,18 +266,28 @@ jobs:
             - **Workflow Run:** [View Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
             ### Action Required
-            Please resolve the merge conflict manually:
+            Please check the failed step in workflow logs and resolve manually if needed:
 
             \`\`\`bash
             git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
             git fetch upstream ${{ env.UPSTREAM_BRANCH }}
             git merge upstream/${{ env.UPSTREAM_BRANCH }}
-            # Resolve conflicts...
+            # Resolve conflicts/permission issues...
             git push origin main
             \`\`\`
 
             After resolving, you can trigger a manual build from the Actions tab.
             `;
+
+            const { data: repo } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            if (!repo.has_issues) {
+              console.log('Issues are disabled; skip creating notification issue.');
+              return;
+            }
 
             // Check if similar issue already exists
             const issues = await github.rest.issues.listForRepo({
