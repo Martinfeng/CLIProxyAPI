@@ -31,12 +31,40 @@ func StartServiceWithPersistence(cfg *config.Config, configPath string, localPas
 	// Run the original service
 	StartService(cfg, configPath, localPassword)
 
-	// Stop persistence after service exits
-	if usage.IsPersistenceRunning() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := usage.StopPersistence(ctx); err != nil {
-			log.Errorf("Failed to stop usage persistence: %v", err)
+	stopUsagePersistence()
+}
+
+// StartServiceBackgroundWithPersistence wraps StartServiceBackground with usage
+// statistics persistence lifecycle management.
+func StartServiceBackgroundWithPersistence(cfg *config.Config, configPath string, localPassword string) (cancel func(), done <-chan struct{}) {
+	// Start persistence if statistics are enabled.
+	if cfg != nil && cfg.UsageStatisticsEnabled {
+		if err := usage.StartPersistence(cfg.AuthDir); err != nil {
+			log.Warnf("Failed to start usage persistence: %v", err)
+			// Continue anyway - persistence is not critical
 		}
+	}
+
+	cancelFn, serviceDone := StartServiceBackground(cfg, configPath, localPassword)
+	doneCh := make(chan struct{})
+
+	go func() {
+		defer close(doneCh)
+		<-serviceDone
+		stopUsagePersistence()
+	}()
+
+	return cancelFn, doneCh
+}
+
+func stopUsagePersistence() {
+	if !usage.IsPersistenceRunning() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := usage.StopPersistence(ctx); err != nil {
+		log.Errorf("Failed to stop usage persistence: %v", err)
 	}
 }
