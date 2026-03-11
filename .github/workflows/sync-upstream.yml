@@ -247,7 +247,7 @@ jobs:
 
   notify-conflict:
     needs: sync-upstream
-    if: needs.sync-upstream.result == 'failure'
+    if: ${{ always() && needs.sync-upstream.result == 'failure' }}
     runs-on: ubuntu-latest
     steps:
       - name: Create issue for sync failure (if Issues enabled)

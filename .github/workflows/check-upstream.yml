@@ -6,23 +6,39 @@ on:
     - cron: '0 */2 * * *'
   workflow_dispatch:
 
+permissions:
+  actions: write
+  contents: read
+
 env:
   UPSTREAM_REPO: router-for-me/CLIProxyAPI
+  UPSTREAM_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check upstream for new release
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream branch
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git || true
+          git fetch upstream ${{ env.UPSTREAM_BRANCH }}
+
+      - name: Check upstream for new release or commits
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Get upstream latest release tag
           UPSTREAM_TAG=$(gh release view --repo ${{ env.UPSTREAM_REPO }} --json tagName -q '.tagName' 2>/dev/null || echo "")
-          UPSTREAM_COMMIT=$(gh api repos/${{ env.UPSTREAM_REPO }}/commits/${{ github.event.repository.default_branch || 'main' }} -q '.sha' 2>/dev/null | head -c 7 || echo "")
+          UPSTREAM_HEAD=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+          MERGE_BASE=$(git merge-base HEAD upstream/${{ env.UPSTREAM_BRANCH }}) || true
           echo "Upstream latest release: $UPSTREAM_TAG"
-          echo "Upstream latest commit: $UPSTREAM_COMMIT"
+          echo "Upstream latest commit: ${UPSTREAM_HEAD:0:7}"
 
           # Get our latest release tag
           OUR_TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q '.tagName' 2>/dev/null || echo "")
@@ -34,17 +50,22 @@ jobs:
 
           # Check if upstream has a newer release
           if [ -z "$UPSTREAM_TAG" ]; then
-            echo "Cannot determine upstream release"
-            echo "needs_sync=false" >> $GITHUB_OUTPUT
+            if [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
+              echo "Upstream release unavailable, but upstream branch has new commits"
+              echo "needs_sync=true" >> $GITHUB_OUTPUT
+            else
+              echo "Cannot determine upstream release and no upstream branch changes detected"
+              echo "needs_sync=false" >> $GITHUB_OUTPUT
+            fi
           elif [ "$UPSTREAM_TAG" != "$OUR_UPSTREAM_VERSION" ]; then
             echo "New upstream release detected: $UPSTREAM_TAG (ours: $OUR_UPSTREAM_VERSION)"
             echo "needs_sync=true" >> $GITHUB_OUTPUT
+          elif [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
+            echo "Upstream branch has new commits beyond our synced release"
+            echo "needs_sync=true" >> $GITHUB_OUTPUT
           else
-            # Same release tag, check if upstream main has new commits
-            FORK_MERGE_BASE=$(gh api repos/${{ github.repository }}/compare/${OUR_TAG}...HEAD -q '.ahead_by' 2>/dev/null || echo "0")
-            echo "Fork commits ahead: $FORK_MERGE_BASE"
+            echo "Fork already contains upstream release and branch head"
             echo "needs_sync=false" >> $GITHUB_OUTPUT
-            echo "No new upstream release"
           fi
 
       - name: Trigger sync workflow

@@ -11,50 +11,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// StartServiceWithPersistence wraps StartService with automatic usage statistics persistence.
-// It loads persisted statistics on startup and saves them on shutdown, ensuring data
-// survives container restarts in Docker deployments.
-//
-// Parameters:
-//   - cfg: The application configuration
-//   - configPath: The path to the configuration file
-//   - localPassword: Optional password accepted for local management requests
+// StartServiceWithPersistence is kept as a compatibility alias.
 func StartServiceWithPersistence(cfg *config.Config, configPath string, localPassword string) {
-	// Start persistence if statistics are enabled
-	if cfg != nil && cfg.UsageStatisticsEnabled {
-		if err := usage.StartPersistence(cfg.AuthDir); err != nil {
-			log.Warnf("Failed to start usage persistence: %v", err)
-			// Continue anyway - persistence is not critical
-		}
-	}
-
-	// Run the original service
 	StartService(cfg, configPath, localPassword)
-
-	stopUsagePersistence()
 }
 
-// StartServiceBackgroundWithPersistence wraps StartServiceBackground with usage
-// statistics persistence lifecycle management.
+// StartServiceBackgroundWithPersistence is kept as a compatibility alias.
 func StartServiceBackgroundWithPersistence(cfg *config.Config, configPath string, localPassword string) (cancel func(), done <-chan struct{}) {
-	// Start persistence if statistics are enabled.
-	if cfg != nil && cfg.UsageStatisticsEnabled {
-		if err := usage.StartPersistence(cfg.AuthDir); err != nil {
-			log.Warnf("Failed to start usage persistence: %v", err)
-			// Continue anyway - persistence is not critical
-		}
+	return StartServiceBackground(cfg, configPath, localPassword)
+}
+
+func startUsagePersistence(cfg *config.Config) {
+	if cfg == nil || !cfg.UsageStatisticsEnabled || usage.IsPersistenceRunning() {
+		return
 	}
-
-	cancelFn, serviceDone := StartServiceBackground(cfg, configPath, localPassword)
-	doneCh := make(chan struct{})
-
-	go func() {
-		defer close(doneCh)
-		<-serviceDone
-		stopUsagePersistence()
-	}()
-
-	return cancelFn, doneCh
+	if err := usage.StartPersistence(cfg.AuthDir); err != nil {
+		log.Warnf("Failed to start usage persistence: %v", err)
+	}
 }
 
 func stopUsagePersistence() {
