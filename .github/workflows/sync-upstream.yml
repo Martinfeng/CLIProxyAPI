@@ -62,38 +62,76 @@ jobs:
           if [ "${{ steps.check.outputs.has_upstream_changes }}" = "true" ]; then
             echo "Attempting to merge upstream/${{ env.UPSTREAM_BRANCH }}..."
             PRE_MERGE_HEAD=$(git rev-parse HEAD)
+            AUTO_KEEP_PREFIX=".github/workflows/"
 
             # Keep fork-owned workflow files unchanged because pushes that modify
             # .github/workflows/* can be rejected without extra workflow scope.
-            if git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-ff --no-commit; then
-              if [ -d .github/workflows ]; then
-                git restore --staged --worktree --source="$PRE_MERGE_HEAD" .github/workflows || true
-              fi
-
-              if git diff --cached --quiet; then
-                echo "No effective changes after preserving local workflow files"
+            if ! git merge upstream/${{ env.UPSTREAM_BRANCH }} --no-ff --no-commit; then
+              CONFLICT_FILES="$(git diff --name-only --diff-filter=U || true)"
+              if [ -z "$CONFLICT_FILES" ]; then
+                echo "::error::Merge failed before conflict paths could be identified."
                 git merge --abort || true
-                if [ "${{ inputs.force_build }}" = "true" ]; then
-                  echo "Force build requested"
-                  echo "has_changes=true" >> $GITHUB_OUTPUT
-                else
-                  echo "has_changes=false" >> $GITHUB_OUTPUT
-                fi
-                exit 0
-              fi
-
-              git commit --no-edit
-              echo "Merge successful"
-              echo "has_changes=true" >> $GITHUB_OUTPUT
-
-              if ! git push origin ${{ github.ref_name }}; then
-                echo "::error::Push failed. Check token/repository permissions."
+                echo "has_changes=false" >> $GITHUB_OUTPUT
                 exit 1
               fi
-            else
-              echo "::error::Merge conflict detected! Manual resolution required."
+
+              NON_AUTOMERGE_CONFLICTS=0
+              while IFS= read -r path; do
+                [ -n "$path" ] || continue
+                case "$path" in
+                  "$AUTO_KEEP_PREFIX"*)
+                    echo "Keeping fork-managed file: $path"
+                    git checkout --ours -- "$path"
+                    git add "$path"
+                    ;;
+                  *)
+                    echo "Conflicting non-workflow file: $path"
+                    NON_AUTOMERGE_CONFLICTS=1
+                    ;;
+                esac
+              done <<EOF
+$CONFLICT_FILES
+EOF
+
+              if [ "$NON_AUTOMERGE_CONFLICTS" -ne 0 ]; then
+                echo "::error::Merge conflict detected outside fork-managed workflow files. Manual resolution required."
+                git merge --abort || true
+                echo "has_changes=false" >> $GITHUB_OUTPUT
+                exit 1
+              fi
+
+              echo "Auto-resolved workflow-only conflicts by keeping fork versions."
+            fi
+
+            if [ -d .github/workflows ]; then
+              git restore --staged --worktree --source="$PRE_MERGE_HEAD" .github/workflows || true
+            fi
+
+            if git diff --name-only --diff-filter=U | grep -q .; then
+              echo "::error::Unresolved merge conflicts remain after workflow conflict handling."
               git merge --abort || true
               echo "has_changes=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+
+            if git diff --cached --quiet; then
+              echo "No effective changes after preserving local workflow files"
+              git merge --abort || true
+              if [ "${{ inputs.force_build }}" = "true" ]; then
+                echo "Force build requested"
+                echo "has_changes=true" >> $GITHUB_OUTPUT
+              else
+                echo "has_changes=false" >> $GITHUB_OUTPUT
+              fi
+              exit 0
+            fi
+
+            git commit --no-edit
+            echo "Merge successful"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+
+            if ! git push origin ${{ github.ref_name }}; then
+              echo "::error::Push failed. Check token/repository permissions."
               exit 1
             fi
           else
