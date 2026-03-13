@@ -89,9 +89,7 @@ jobs:
                     NON_AUTOMERGE_CONFLICTS=1
                     ;;
                 esac
-              done <<EOF
-$CONFLICT_FILES
-EOF
+              done < <(printf '%s\n' "$CONFLICT_FILES")
 
               if [ "$NON_AUTOMERGE_CONFLICTS" -ne 0 ]; then
                 echo "::error::Merge conflict detected outside fork-managed workflow files. Manual resolution required."
