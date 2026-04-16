@@ -49,6 +49,7 @@ jobs:
           echo "Our upstream base: $OUR_UPSTREAM_VERSION"
 
           # Check if upstream has a newer release
+          TAG_ONLY=false
           if [ -z "$UPSTREAM_TAG" ]; then
             if [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
               echo "Upstream release unavailable, but upstream branch has new commits"
@@ -58,7 +59,12 @@ jobs:
               echo "needs_sync=false" >> $GITHUB_OUTPUT
             fi
           elif [ "$UPSTREAM_TAG" != "$OUR_UPSTREAM_VERSION" ]; then
-            echo "New upstream release detected: $UPSTREAM_TAG (ours: $OUR_UPSTREAM_VERSION)"
+            if [ "$MERGE_BASE" = "$UPSTREAM_HEAD" ]; then
+              echo "New upstream release $UPSTREAM_TAG points to already-merged commit ${UPSTREAM_HEAD:0:7}; forcing build for release"
+              TAG_ONLY=true
+            else
+              echo "New upstream release detected: $UPSTREAM_TAG (ours: $OUR_UPSTREAM_VERSION)"
+            fi
             echo "needs_sync=true" >> $GITHUB_OUTPUT
           elif [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
             echo "Upstream branch has new commits beyond our synced release"
@@ -67,11 +73,18 @@ jobs:
             echo "Fork already contains upstream release and branch head"
             echo "needs_sync=false" >> $GITHUB_OUTPUT
           fi
+          echo "tag_only=$TAG_ONLY" >> $GITHUB_OUTPUT
 
       - name: Trigger sync workflow
         if: steps.check.outputs.needs_sync == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_ONLY: ${{ steps.check.outputs.tag_only }}
         run: |
-          gh workflow run sync-upstream.yml --repo ${{ github.repository }}
-          echo "Triggered sync-upstream workflow"
+          if [ "$TAG_ONLY" = "true" ]; then
+            gh workflow run sync-upstream.yml --repo ${{ github.repository }} -f force_build=true
+            echo "Triggered sync-upstream workflow (force_build=true, tag-only upstream release)"
+          else
+            gh workflow run sync-upstream.yml --repo ${{ github.repository }}
+            echo "Triggered sync-upstream workflow"
+          fi
