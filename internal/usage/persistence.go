@@ -29,7 +29,7 @@ type Persistence struct {
 	saveMu sync.Mutex // Protects concurrent save operations
 }
 
-// persistencePayload matches the format used by /management/usage/export API.
+// persistencePayload matches the format used by /management/usage-stats/export API.
 type persistencePayload struct {
 	Version   int                `json:"version"`
 	SavedAt   time.Time          `json:"saved_at"`
