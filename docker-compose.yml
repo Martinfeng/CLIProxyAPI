@@ -10,9 +10,10 @@
 #   - Usage Service panel:   http://localhost:18317/management.html
 #     (SQLite-backed persistent usage analytics)
 #
-# First-run setup happens entirely in the browser (cloud deploy mode):
-# open the panel, configure providers and management password, save.
-# All data persists in named volumes; no host directory pre-creation needed.
+# Upgrade:
+#   docker compose pull && docker compose up -d
+# (binaries live in the images; only data sub-directories are persisted in
+# named volumes, so image upgrades pick up cleanly.)
 
 services:
   cli-proxy-api:
@@ -22,6 +23,11 @@ services:
     restart: unless-stopped
     environment:
       DEPLOY: ${DEPLOY:-}
+      # Drives the directory used for static panel cache, logs, and store
+      # local fallbacks. /CLIProxyAPI is the image's WORKDIR; only its
+      # data sub-paths are mounted, so the binary itself stays in the image.
+      WRITABLE_PATH: /CLIProxyAPI
+    entrypoint: ["./CLIProxyAPI", "-config", "/CLIProxyAPI/config/config.yaml"]
     ports:
       - "8317:8317"
       - "8085:8085"
@@ -30,10 +36,9 @@ services:
       - "51121:51121"
       - "11451:11451"
     volumes:
-      # Named volume initialises from the image on first run (binary +
-      # config.example.yaml are preserved); subsequent config / static
-      # cache written by the panel persist here.
-      - cli-proxy-data:/CLIProxyAPI
+      - cli-proxy-config:/CLIProxyAPI/config
+      - cli-proxy-static:/CLIProxyAPI/static
+      - cli-proxy-logs:/CLIProxyAPI/logs
       - cli-proxy-auths:/root/.cli-proxy-api
     networks:
       - cpa-net
@@ -59,6 +64,8 @@ networks:
     driver: bridge
 
 volumes:
-  cli-proxy-data:
+  cli-proxy-config:
+  cli-proxy-static:
+  cli-proxy-logs:
   cli-proxy-auths:
   cpa-manager-data:
