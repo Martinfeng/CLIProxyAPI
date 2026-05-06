@@ -24,6 +24,10 @@ services:
     restart: unless-stopped
     environment:
       DEPLOY: ${DEPLOY:-}
+      # Bypass any host-injected HTTP proxy (e.g. Docker Desktop forwards
+      # the host's HTTP_PROXY into containers) for inter-service traffic.
+      NO_PROXY: cpa-manager,cli-proxy-api,localhost,127.0.0.1
+      no_proxy: cpa-manager,cli-proxy-api,localhost,127.0.0.1
     ports:
       - "8317:8317"
       - "8085:8085"
@@ -47,6 +51,8 @@ services:
       - "18317:18317"
     environment:
       CPA_BASE_URL: ${CPA_BASE_URL:-http://cli-proxy-api:8317}
+      NO_PROXY: cli-proxy-api,cpa-manager,localhost,127.0.0.1
+      no_proxy: cli-proxy-api,cpa-manager,localhost,127.0.0.1
     volumes:
       - cpa-manager-data:/data
     depends_on:
