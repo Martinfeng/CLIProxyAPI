@@ -243,8 +243,11 @@ jobs:
 
           ## 一键部署（CPA + Usage Service）
 
+          初次安装（与上游布局保持一致，升级用单条 \`docker compose pull && up -d\`）：
+
           \`\`\`bash
           curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+          curl -o config.yaml https://raw.githubusercontent.com/${{ github.repository }}/main/config.example.yaml
           docker compose up -d
           \`\`\`
 

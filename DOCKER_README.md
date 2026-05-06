@@ -14,8 +14,11 @@
 
 ## 一键部署（推荐）
 
+初次安装（与上游布局保持一致，方便后续 `docker compose pull && up -d` 升级）：
+
 ```bash
 curl -O https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/docker-compose.yml
+curl -o config.yaml https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/config.example.yaml
 docker compose up -d
 ```
 
@@ -24,7 +27,7 @@ docker compose up -d
 - CPA 主面板：http://localhost:8317/management.html
 - Usage Service（SQLite 持久化）：http://localhost:18317/management.html
 
-首次访问进入 cloud deploy 模式：在浏览器里设置 Management 密码、添加 provider、保存即可。所有数据落在 named volume，无需预创建任何主机目录。
+首次访问后在浏览器里设置 Management 密码、添加 provider、保存即可。`./config.yaml`、`./auths/`、`./logs/` 直接落到 docker-compose 同级目录，与上游布局一致。
 
 ## 仅拉镜像
 

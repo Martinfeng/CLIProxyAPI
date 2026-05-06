@@ -1,7 +1,10 @@
 # One-click deployment for CLI Proxy API fork + CPA-Manager Usage Service.
 #
-# Usage:
+# Initial install (two curls keep the layout identical to upstream so
+# `docker compose pull && docker compose up -d` upgrades stay clean):
+#
 #   curl -O https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/docker-compose.yml
+#   curl -o config.yaml https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/config.example.yaml
 #   docker compose up -d
 #
 # After startup:
@@ -12,8 +15,6 @@
 #
 # Upgrade:
 #   docker compose pull && docker compose up -d
-# (binaries live in the images; only data sub-directories are persisted in
-# named volumes, so image upgrades pick up cleanly.)
 
 services:
   cli-proxy-api:
@@ -23,14 +24,6 @@ services:
     restart: unless-stopped
     environment:
       DEPLOY: ${DEPLOY:-}
-      # Drives the directory used for static panel cache, logs, and store
-      # local fallbacks. /CLIProxyAPI is the image's WORKDIR; only its
-      # data sub-paths are mounted, so the binary itself stays in the image.
-      WRITABLE_PATH: /CLIProxyAPI
-    # Seed the persisted config volume from the image's bundled example
-    # the first time the container starts (cp -n preserves any user-saved
-    # config across restarts), then exec the binary.
-    entrypoint: ["sh", "-c", "cp -n /CLIProxyAPI/config.example.yaml /CLIProxyAPI/config/config.yaml 2>/dev/null || true; exec ./CLIProxyAPI -config /CLIProxyAPI/config/config.yaml"]
     ports:
       - "8317:8317"
       - "8085:8085"
@@ -39,10 +32,9 @@ services:
       - "51121:51121"
       - "11451:11451"
     volumes:
-      - cli-proxy-config:/CLIProxyAPI/config
-      - cli-proxy-static:/CLIProxyAPI/static
-      - cli-proxy-logs:/CLIProxyAPI/logs
-      - cli-proxy-auths:/root/.cli-proxy-api
+      - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/CLIProxyAPI/config.yaml
+      - ${CLI_PROXY_AUTH_PATH:-./auths}:/root/.cli-proxy-api
+      - ${CLI_PROXY_LOG_PATH:-./logs}:/CLIProxyAPI/logs
     networks:
       - cpa-net
 
@@ -67,8 +59,4 @@ networks:
     driver: bridge
 
 volumes:
-  cli-proxy-config:
-  cli-proxy-static:
-  cli-proxy-logs:
-  cli-proxy-auths:
   cpa-manager-data:
