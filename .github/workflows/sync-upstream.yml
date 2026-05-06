@@ -193,10 +193,15 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Generate Build Metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "VERSION=${{ needs.sync-upstream.outputs.new_version }}" >> $GITHUB_ENV
           echo "COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
+          PANEL_VERSION=$(gh release view --repo seakee/CPA-Manager --json tagName -q '.tagName' 2>/dev/null || echo "unknown")
+          echo "PANEL_VERSION=$PANEL_VERSION" >> $GITHUB_ENV
+          echo "Embedded panel version: $PANEL_VERSION"
 
       - name: Build and push (multi-arch)
         uses: docker/build-push-action@v6
@@ -233,36 +238,51 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate release notes
-          cat > release-notes.md << 'EOF'
+          cat > release-notes.md << EOF
           本项目是 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 Fork 版本。如不需要以下增强功能，建议使用[原项目](https://github.com/router-for-me/CLIProxyAPI)。
 
-          ## Docker 镜像
+          ## 一键部署（CPA + Usage Service）
 
-          ```bash
+          \`\`\`bash
+          curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
+          docker compose up -d
+          \`\`\`
+
+          - CPA 主入口：http://localhost:8317/management.html
+          - Usage Service（SQLite 持久化）：http://localhost:18317/management.html
+
+          ## 仅拉镜像
+
+          \`\`\`bash
           docker pull ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}
           # or
           docker pull ${{ env.DOCKERHUB_REPO }}:latest
-          ```
+          \`\`\`
 
           ## 与原项目的区别
 
           | 功能 | 原项目 | 本 Fork |
           |------|--------|---------|
-          | 统计数据持久化 | 仅内存存储，容器重启后丢失 | 自动保存到磁盘，重启后恢复 |
-          | 数据保留策略 | 无限累积 | 自动清理 32 天前的数据 |
-          | 上游同步 | - | 每 2 小时自动检查并合并上游更新 |
+          | 统计数据持久化 | 仅内存存储，容器重启后丢失 | 自动保存到磁盘 + 32 天保留；可选 SQLite 持久化（Usage Service） |
+          | Management 面板 | router-for-me/Cli-Proxy-API-Management-Center | [seakee/CPA-Manager](https://github.com/seakee/CPA-Manager)（含统计 tab） |
+          | 上游同步 | - | 每 2 小时自动检查 CPA + CPA-Manager，任一更新即出 release |
+
+          ## 嵌入资源
+
+          - **Embedded panel:** Panel version: ${{ env.PANEL_VERSION }}（来自 [seakee/CPA-Manager](https://github.com/seakee/CPA-Manager) 最新 release）
 
           ## 支持架构
 
-          - `linux/amd64` — Intel / AMD 处理器
-          - `linux/arm64` — Apple Silicon (M1/M2/M3/M4)、ARM 服务器
+          - \`linux/amd64\` — Intel / AMD 处理器
+          - \`linux/arm64\` — Apple Silicon (M1/M2/M3/M4)、ARM 服务器
 
           ## 构建信息
 
           - **版本:** ${{ env.VERSION }}
           - **Commit:** ${{ env.COMMIT }}
           - **构建时间:** ${{ env.BUILD_DATE }}
-          - **上游项目:** [${{ env.UPSTREAM_REPO }}](https://github.com/${{ env.UPSTREAM_REPO }})
+          - **CPA 上游:** [${{ env.UPSTREAM_REPO }}](https://github.com/${{ env.UPSTREAM_REPO }})
+          - **Panel 上游:** [seakee/CPA-Manager](https://github.com/seakee/CPA-Manager)
           EOF
 
           # Create release (delete existing if same version)

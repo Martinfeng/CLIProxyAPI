@@ -1,0 +1,50 @@
+name: Check CPA-Manager Release
+
+on:
+  schedule:
+    # Offset 15 minutes from check-upstream to avoid contention
+    - cron: '15 */2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+env:
+  CPAM_REPO: seakee/CPA-Manager
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare embedded panel version
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PANEL_TAG=$(gh release view --repo ${{ env.CPAM_REPO }} --json tagName -q '.tagName' 2>/dev/null || echo "")
+          echo "CPA-Manager latest panel: $PANEL_TAG"
+
+          OUR_BODY=$(gh release view --repo ${{ github.repository }} --json body -q '.body' 2>/dev/null || echo "")
+          OUR_PANEL=$(printf '%s\n' "$OUR_BODY" | grep -oE 'Panel version:[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | awk '{print $NF}')
+          [ -z "$OUR_PANEL" ] && OUR_PANEL="(none)"
+          echo "Recorded panel in our latest release: $OUR_PANEL"
+
+          if [ -z "$PANEL_TAG" ]; then
+            echo "CPA-Manager release unavailable; skip"
+            echo "needs_sync=false" >> $GITHUB_OUTPUT
+          elif [ "$PANEL_TAG" != "$OUR_PANEL" ]; then
+            echo "Panel drift detected: ours=$OUR_PANEL upstream=$PANEL_TAG"
+            echo "needs_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "Embedded panel already matches CPA-Manager latest"
+            echo "needs_sync=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger sync-upstream (force build for new panel)
+        if: steps.check.outputs.needs_sync == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run sync-upstream.yml --repo ${{ github.repository }} -f force_build=true
+          echo "Triggered sync-upstream workflow (force_build=true, panel update)"
