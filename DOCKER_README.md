@@ -29,7 +29,7 @@ docker compose up -d
 ## 仅拉镜像
 
 ```bash
-docker pull martinfeng/cli-proxy-api:latest
+docker pull kaelsen/cli-proxy-api:latest
 ```
 
 ## 支持架构

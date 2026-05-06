@@ -17,7 +17,7 @@
 
 services:
   cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-martinfeng/cli-proxy-api:latest}
+    image: ${CLI_PROXY_IMAGE:-kaelsen/cli-proxy-api:latest}
     pull_policy: always
     container_name: cli-proxy-api
     restart: unless-stopped

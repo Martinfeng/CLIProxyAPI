@@ -16,7 +16,7 @@ permissions:
 env:
   UPSTREAM_REPO: router-for-me/CLIProxyAPI
   UPSTREAM_BRANCH: main
-  DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'martinfeng/cli-proxy-api' }}
+  DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'kaelsen/cli-proxy-api' }}
 
 jobs:
   sync-upstream:
