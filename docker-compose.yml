@@ -27,7 +27,10 @@ services:
       # local fallbacks. /CLIProxyAPI is the image's WORKDIR; only its
       # data sub-paths are mounted, so the binary itself stays in the image.
       WRITABLE_PATH: /CLIProxyAPI
-    entrypoint: ["./CLIProxyAPI", "-config", "/CLIProxyAPI/config/config.yaml"]
+    # Seed the persisted config volume from the image's bundled example
+    # the first time the container starts (cp -n preserves any user-saved
+    # config across restarts), then exec the binary.
+    entrypoint: ["sh", "-c", "cp -n /CLIProxyAPI/config.example.yaml /CLIProxyAPI/config/config.yaml 2>/dev/null || true; exec ./CLIProxyAPI -config /CLIProxyAPI/config/config.yaml"]
     ports:
       - "8317:8317"
       - "8085:8085"
