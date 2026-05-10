@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/usage"
 )
 
 type usageExportPayload struct {
@@ -20,12 +20,18 @@ type usageImportPayload struct {
 	Usage   usage.StatisticsSnapshot `json:"usage"`
 }
 
+// 通过包级 getter 获取 stats 单例，避免在 Handler 结构体上挂 fork-only 字段。
+// 这样 handler.go 不需要 fork 改动，能干净地随 upstream 同步。
+func usageStatsRef() *usage.RequestStatistics {
+	return usage.GetRequestStatistics()
+}
+
 // GetUsageStatistics returns the in-memory request statistics snapshot.
 func (h *Handler) GetUsageStatistics(c *gin.Context) {
 	var snapshot usage.StatisticsSnapshot
-	if h != nil && h.usageStats != nil {
-		h.usageStats.PruneRetention(time.Now())
-		snapshot = h.usageStats.Snapshot()
+	if stats := usageStatsRef(); stats != nil {
+		stats.PruneRetention(time.Now())
+		snapshot = stats.Snapshot()
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"usage":           snapshot,
@@ -36,9 +42,9 @@ func (h *Handler) GetUsageStatistics(c *gin.Context) {
 // ExportUsageStatistics returns a complete usage snapshot for backup/migration.
 func (h *Handler) ExportUsageStatistics(c *gin.Context) {
 	var snapshot usage.StatisticsSnapshot
-	if h != nil && h.usageStats != nil {
-		h.usageStats.PruneRetention(time.Now())
-		snapshot = h.usageStats.Snapshot()
+	if stats := usageStatsRef(); stats != nil {
+		stats.PruneRetention(time.Now())
+		snapshot = stats.Snapshot()
 	}
 	c.JSON(http.StatusOK, usageExportPayload{
 		Version:    1,
@@ -49,7 +55,8 @@ func (h *Handler) ExportUsageStatistics(c *gin.Context) {
 
 // ImportUsageStatistics merges a previously exported usage snapshot into memory.
 func (h *Handler) ImportUsageStatistics(c *gin.Context) {
-	if h == nil || h.usageStats == nil {
+	stats := usageStatsRef()
+	if stats == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "usage statistics unavailable"})
 		return
 	}
@@ -70,9 +77,9 @@ func (h *Handler) ImportUsageStatistics(c *gin.Context) {
 		return
 	}
 
-	result := h.usageStats.MergeSnapshot(payload.Usage)
-	h.usageStats.PruneRetention(time.Now())
-	snapshot := h.usageStats.Snapshot()
+	result := stats.MergeSnapshot(payload.Usage)
+	stats.PruneRetention(time.Now())
+	snapshot := stats.Snapshot()
 	c.JSON(http.StatusOK, gin.H{
 		"added":           result.Added,
 		"skipped":         result.Skipped,
