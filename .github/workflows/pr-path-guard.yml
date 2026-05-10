@@ -10,6 +10,9 @@ on:
 jobs:
   ensure-no-translator-changes:
     runs-on: ubuntu-latest
+    # Fork 的 sync 分支会因 upstream 的整库改动（如 v6→v7 module bump）触发 translator 文件变更，
+    # 这种是结构性同步而非业务编辑，跳过 path-guard 检查。
+    if: ${{ !startsWith(github.head_ref, 'fix/sync-upstream') && !startsWith(github.head_ref, 'sync/upstream') }}
     steps:
       - uses: actions/checkout@v4
         with:
