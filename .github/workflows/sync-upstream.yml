@@ -286,12 +286,30 @@ jobs:
 
           ### 步骤 2：处理 \`./config.yaml\`（safemode + management key）
 
-          \`config.example.yaml\` 包含演示用的 API key 占位。CPA fork 启动时会检测这些占位、进入 safemode 只起 warning 页（日志里能看到 \`unsafe example API key configured\`），导致 \`:8317\` 不可用。
+          \`config.example.yaml\` 第 39-42 行有三个 \`your-api-key-1/2/3\` 占位。CPA fork 启动时会检测这些占位、进入 safemode 只起一个警告页（日志能看到 \`unsafe example API key configured\`，\`:8317\` 此时返回的不是正常 API 而是一个 HTML 警告页）。setup 时 Plus 容器调 \`http://cli-proxy-api:8317\` 拿到的也是这个 HTML 警告页、解析失败 → 浏览器报 **网络连接失败**。
 
           编辑 \`./config.yaml\`，两件事一起做：
 
-          1. 在 \`api-keys\` 列表里把演示用的 key（示例像 \`sk-example-...\`）**删掉**，或者换成你真正要用的 key
-          2. 在 \`remote-management.secret-key\` 填你自己定的密码（明文，CPA 启动时自动哈希）：
+          **1. 替换或清空 \`api-keys\`**（必做，否则 safemode 一直拦着）：
+
+          - 用 OpenAI 兼容 API 转发功能 → 换成你自己生成的真 key（\`openssl rand -hex 24\` 之类）
+          - 不用 → 直接清空：\`api-keys: []\`
+
+          \`\`\`yaml
+          # 之前
+          api-keys:
+            - "your-api-key-1"
+            - "your-api-key-2"
+            - "your-api-key-3"
+
+          # 之后（任选其一）
+          api-keys: []
+          # 或
+          api-keys:
+            - "sk-你生成的真实随机字符串"
+          \`\`\`
+
+          **2. 设 \`remote-management.secret-key\`**（明文，CPA 启动时会自动哈希）：
 
           \`\`\`yaml
           remote-management:
@@ -299,7 +317,14 @@ jobs:
             secret-key: "你自己定的密码"
           \`\`\`
 
-          然后 \`docker compose restart cli-proxy-api\` 让 CPA 加载新配置。重启后日志应能看到 \`API server started successfully on: :8317\`，没有再出现 \`unsafe example API key configured\`。
+          完成后：
+
+          \`\`\`bash
+          docker compose restart cli-proxy-api
+          docker compose logs cli-proxy-api 2>&1 | tail -10 | grep -E 'API server started|unsafe example'
+          \`\`\`
+
+          应该只看到 \`API server started successfully on: :8317\`，不再有 \`unsafe example API key configured\`。
 
           ### 步骤 3：浏览器进 Plus 完成 setup
 
