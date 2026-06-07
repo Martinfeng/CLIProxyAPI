@@ -248,10 +248,22 @@ jobs:
           \`\`\`bash
           curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
           curl -o config.yaml https://raw.githubusercontent.com/${{ github.repository }}/main/config.example.yaml
+          curl -o .env https://raw.githubusercontent.com/${{ github.repository }}/main/.env.example
+          # 编辑 .env，把 MANAGEMENT_KEY 换成你自己的密码（openssl rand -hex 24 之类）
+          # 编辑 config.yaml，把 api-keys 段那三个 your-api-key-X 占位删了或换成真 key（见步骤 2 详解）
           docker compose up -d
           \`\`\`
 
           升级：\`docker compose pull && docker compose up -d\`
+
+          ## 一个密码到底（v7.1.50-fork.1 起）
+
+          fork 已经把 \`MANAGEMENT_KEY\` 统一同时注入到 CPA 的 \`MANAGEMENT_PASSWORD\` 和 Plus 的 \`CPA_MANAGER_ADMIN_KEY\`。所以：
+
+          - 你**只用记一个密码**（\`.env\` 里那一行）。
+          - CPA 的 \`config.yaml\` 里 \`remote-management.secret-key\` 保持空字符串，CPA 直接走 env 校验（明文比对，line 283 of \`internal/api/handlers/management/handler.go\`），不再哈希写回。
+          - Plus 启动日志会显示 \`CPA Manager Plus admin credential initialized\`，而不是之前那种一次性 \`cmp_admin_...\` 生成提示——因为 env 已经提供了。
+          - Plus setup 页问"Manager 管理员密钥"和"CPA Management Key"两次时，**两次都填同一个值**就是 \`.env\` 里那个 \`MANAGEMENT_KEY\`。
 
           ## 从旧版升级（v7.1.50-fork.1 之前装过 CPA-Manager 的看这里）
 
@@ -272,17 +284,16 @@ jobs:
 
           docker-compose 起来后只是把两个服务跑了，**还需要在浏览器走一次 setup 流程**才能用上 Manager Server 的完整能力。
 
-          ### 步骤 1：拿到 Manager 管理员密钥
+          ### 步骤 1：准备 \`.env\`（统一密码）
 
-          CPA-Manager-Plus 首次启动会自动生成一个 \`cmp_admin_...\` 管理员密钥，**只在第一次启动日志里打印一次**：
+          下载 \`.env.example\` 并改名 \`.env\`，编辑 \`MANAGEMENT_KEY\` 一行换成你自己的密码（推荐 \`openssl rand -hex 24\` 生成）：
 
-          \`\`\`bash
-          docker compose logs cpa-manager-plus | grep -E 'cmp_admin_|admin key'
+          \`\`\`
+          MANAGEMENT_KEY=你自己生成的随机字符串
           \`\`\`
 
-          把这串密钥保存好。如果错过这次输出，可以删掉 cpa-manager-plus 容器和 \`cpa-manager-plus-data\` volume 后重新 \`docker compose up -d\` 让它再生成一次（会丢统计数据）。
-
-          也可以在 docker-compose.yml 的 cpa-manager-plus 服务下用 \`CPA_MANAGER_ADMIN_KEY: 你的固定密钥\` 提前指定，自己管理生命周期。
+          这一行同时是 CPA management key、Plus admin key、setup 页的 CPA Management Key —— 三个概念一个值。
+          没有 \`.env\` 或 \`MANAGEMENT_KEY\` 留空 \`docker compose up\` 会直接报错拒绝启动（避免裸跑无密码）。
 
           ### 步骤 2：处理 \`./config.yaml\`（safemode + management key）
 
@@ -309,13 +320,7 @@ jobs:
             - "sk-你生成的真实随机字符串"
           \`\`\`
 
-          **2. 设 \`remote-management.secret-key\`**（明文，CPA 启动时会自动哈希）：
-
-          \`\`\`yaml
-          remote-management:
-            allow-remote: false
-            secret-key: "你自己定的密码"
-          \`\`\`
+          **2. 不要动 \`remote-management.secret-key\`**：保持空字符串。CPA 已经通过 \`MANAGEMENT_PASSWORD\` env（由 \`.env\` 注入）校验，不需要也别在 config.yaml 再设一份（设了会被 CPA 启动时哈希、把明文丢掉、跟 Plus 端 env 对不上）。
 
           完成后：
 
@@ -332,9 +337,9 @@ jobs:
 
           | 字段 | 值 |
           |---|---|
-          | Manager 管理员密钥 | 步骤 1 拿到的 \`cmp_admin_...\` |
+          | Manager 管理员密钥 | \`.env\` 里的 \`MANAGEMENT_KEY\` |
           | CPA 地址 | \`http://cli-proxy-api:8317\` |
-          | CPA Management Key | 步骤 2 设的明文密码 |
+          | CPA Management Key | **同一个** \`MANAGEMENT_KEY\`（两次填同样值） |
           | 启用请求监控 | 建议开启 |
           | 采集轮询间隔 | 用默认 500ms 即可 |
 
@@ -342,7 +347,7 @@ jobs:
 
           ### 步骤 4：常态登录
 
-          之后每次浏览器访问 \`http://localhost:18317/management.html\` 只用 Manager 管理员密钥登录，CPA Management Key 服务端托管不再输入。
+          之后每次浏览器访问 \`http://localhost:18317/management.html\` 只用 \`MANAGEMENT_KEY\` 登录。CPA Management Key 已经服务端托管不再输入。
 
           监控、模型价格、API Key 别名、用量导入导出、服务端 Codex 巡检都在这个入口下。
 

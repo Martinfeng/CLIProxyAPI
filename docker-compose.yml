@@ -36,6 +36,12 @@ services:
     restart: unless-stopped
     environment:
       DEPLOY: ${DEPLOY:-}
+      # Single shared password. Set MANAGEMENT_KEY once in the sibling
+      # .env file; CPA accepts it as the management secret (line 283 of
+      # internal/api/handlers/management/handler.go matches the provided
+      # bearer token against this env directly, no bcrypt hashing), so
+      # config.yaml's remote-management.secret-key can stay empty.
+      MANAGEMENT_PASSWORD: ${MANAGEMENT_KEY:?MANAGEMENT_KEY is required. Copy .env.example to .env and edit it before starting compose.}
       # Bypass any host-injected HTTP proxy (e.g. Docker Desktop forwards
       # the host's HTTP_PROXY into containers) for inter-service traffic.
       NO_PROXY: cpa-manager-plus,cli-proxy-api,localhost,127.0.0.1
@@ -64,6 +70,10 @@ services:
     environment:
       HTTP_ADDR: "0.0.0.0:18317"
       USAGE_DB_PATH: "/data/usage.sqlite"
+      # Same MANAGEMENT_KEY the CPA service uses. The setup wizard will
+      # ask for it twice (Manager admin key + CPA management key) - paste
+      # the same value both times.
+      CPA_MANAGER_ADMIN_KEY: ${MANAGEMENT_KEY:?MANAGEMENT_KEY is required. Copy .env.example to .env and edit it before starting compose.}
       # Encryption key for CPA management secrets stored server-side.
       # Generated and cached automatically when the file does not exist.
       CPA_MANAGER_DATA_KEY_PATH: "/data/data.key"
