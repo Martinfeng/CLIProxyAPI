@@ -199,7 +199,7 @@ jobs:
           echo "VERSION=${{ needs.sync-upstream.outputs.new_version }}" >> $GITHUB_ENV
           echo "COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
-          PANEL_VERSION=$(gh release view --repo seakee/CPA-Manager --json tagName -q '.tagName' 2>/dev/null || echo "unknown")
+          PANEL_VERSION=$(gh release view --repo seakee/CPA-Manager-Plus --json tagName -q '.tagName' 2>/dev/null || echo "unknown")
           echo "PANEL_VERSION=$PANEL_VERSION" >> $GITHUB_ENV
           echo "Embedded panel version: $PANEL_VERSION"
 
@@ -239,11 +239,11 @@ jobs:
         run: |
           # Generate release notes
           cat > release-notes.md << EOF
-          本项目是 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 Fork 版本。如不需要以下增强功能，建议使用[原项目](https://github.com/router-for-me/CLIProxyAPI)。
+          本项目是 [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) 的 Fork 版本，整合 [seakee/CPA-Manager-Plus](https://github.com/seakee/CPA-Manager-Plus) 作为 Manager Server，提供 SQLite 持久化的请求统计、模型价格、Codex 巡检等完整管理能力。
 
-          ## 一键部署（CPA + Usage Service）
+          > 不需要以下增强建议直接使用 [原项目](https://github.com/router-for-me/CLIProxyAPI)。
 
-          初次安装（与上游布局保持一致，升级用单条 \`docker compose pull && up -d\`）：
+          ## 一键部署
 
           \`\`\`bash
           curl -O https://raw.githubusercontent.com/${{ github.repository }}/main/docker-compose.yml
@@ -251,8 +251,73 @@ jobs:
           docker compose up -d
           \`\`\`
 
-          - CPA 主入口：http://localhost:8317/management.html
-          - Usage Service（SQLite 持久化）：http://localhost:18317/management.html
+          升级：\`docker compose pull && docker compose up -d\`
+
+          ## 首次部署后的操作（必读）
+
+          docker-compose 起来后只是把两个服务跑了，**还需要在浏览器走一次 setup 流程**才能用上 Manager Server 的完整能力。
+
+          ### 步骤 1：拿到 Manager 管理员密钥
+
+          CPA-Manager-Plus 首次启动会自动生成一个 \`cmp_admin_...\` 管理员密钥，**只在第一次启动日志里打印一次**：
+
+          \`\`\`bash
+          docker compose logs cpa-manager-plus | grep -E 'cmp_admin_|admin key'
+          \`\`\`
+
+          把这串密钥保存好。如果错过这次输出，可以删掉 cpa-manager-plus 容器和 \`cpa-manager-plus-data\` volume 后重新 \`docker compose up -d\` 让它再生成一次（会丢统计数据）。
+
+          也可以在 docker-compose.yml 的 cpa-manager-plus 服务下用 \`CPA_MANAGER_ADMIN_KEY: 你的固定密钥\` 提前指定，自己管理生命周期。
+
+          ### 步骤 2：处理 \`./config.yaml\`（safemode + management key）
+
+          \`config.example.yaml\` 包含演示用的 API key 占位。CPA fork 启动时会检测这些占位、进入 safemode 只起 warning 页（日志里能看到 \`unsafe example API key configured\`），导致 \`:8317\` 不可用。
+
+          编辑 \`./config.yaml\`，两件事一起做：
+
+          1. 在 \`api-keys\` 列表里把演示用的 key（示例像 \`sk-example-...\`）**删掉**，或者换成你真正要用的 key
+          2. 在 \`remote-management.secret-key\` 填你自己定的密码（明文，CPA 启动时自动哈希）：
+
+          \`\`\`yaml
+          remote-management:
+            allow-remote: false
+            secret-key: "你自己定的密码"
+          \`\`\`
+
+          然后 \`docker compose restart cli-proxy-api\` 让 CPA 加载新配置。重启后日志应能看到 \`API server started successfully on: :8317\`，没有再出现 \`unsafe example API key configured\`。
+
+          ### 步骤 3：浏览器进 Plus 完成 setup
+
+          打开 \`http://localhost:18317/management.html\`，会进 setup 页（首次部署专属）。按顺序填：
+
+          | 字段 | 值 |
+          |---|---|
+          | Manager 管理员密钥 | 步骤 1 拿到的 \`cmp_admin_...\` |
+          | CPA 地址 | \`http://cli-proxy-api:8317\` |
+          | CPA Management Key | 步骤 2 设的明文密码 |
+          | 启用请求监控 | 建议开启 |
+          | 采集轮询间隔 | 用默认 500ms 即可 |
+
+          保存成功后，Plus 会：自动验证 CPA management API、自动打开 CPA 端的 \`usage-statistics-enabled\`、启动 \`auto\` 模式采集器（HTTP queue 优先，回退 RESP）、把 CPA 连接配置加密后存到 SQLite。
+
+          ### 步骤 4：常态登录
+
+          之后每次浏览器访问 \`http://localhost:18317/management.html\` 只用 Manager 管理员密钥登录，CPA Management Key 服务端托管不再输入。
+
+          监控、模型价格、API Key 别名、用量导入导出、服务端 Codex 巡检都在这个入口下。
+
+          ## 关于 \`:8317/management.html\`
+
+          这个地址仍然能打开同一份 Plus panel（CPA 自动下载嵌入），用作纯 CPA 管理面板时正常。但在 Plus 设计下，**\`:8317\` 入口的监控/统计/模型价格/Codex 巡检全部不可见**，只有 \`:18317\` 入口才能用到 Manager Server 提供的能力。这是 Plus 上游的明确分工，本 fork 没有改动。
+
+          ## 与原项目的区别
+
+          | 功能 | 原项目 | 本 Fork |
+          |------|--------|---------|
+          | 请求统计持久化 | 仅内存，重启丢失 | 磁盘 JSON + 32 天保留；可选 SQLite（CPA-Manager-Plus） |
+          | Management 面板 | router-for-me/Cli-Proxy-API-Management-Center | [seakee/CPA-Manager-Plus](https://github.com/seakee/CPA-Manager-Plus) |
+          | 监控/模型价格/Codex 巡检 | 无 | Plus Manager Server 提供（:18317 入口） |
+          | 上游同步 | - | 每 2 小时自动检查 CPA + Plus，任一更新即出 release |
 
           ## 仅拉镜像
 
@@ -262,17 +327,9 @@ jobs:
           docker pull ${{ env.DOCKERHUB_REPO }}:latest
           \`\`\`
 
-          ## 与原项目的区别
-
-          | 功能 | 原项目 | 本 Fork |
-          |------|--------|---------|
-          | 统计数据持久化 | 仅内存存储，容器重启后丢失 | 自动保存到磁盘 + 32 天保留；可选 SQLite 持久化（Usage Service） |
-          | Management 面板 | router-for-me/Cli-Proxy-API-Management-Center | [seakee/CPA-Manager](https://github.com/seakee/CPA-Manager)（含统计 tab） |
-          | 上游同步 | - | 每 2 小时自动检查 CPA + CPA-Manager，任一更新即出 release |
-
           ## 嵌入资源
 
-          - **Embedded panel:** Panel version: ${{ env.PANEL_VERSION }}（来自 [seakee/CPA-Manager](https://github.com/seakee/CPA-Manager) 最新 release）
+          - **Embedded panel:** Panel version: ${{ env.PANEL_VERSION }}（来自 [seakee/CPA-Manager-Plus](https://github.com/seakee/CPA-Manager-Plus) 最新 release）
 
           ## 支持架构
 

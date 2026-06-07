@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  CPAM_REPO: seakee/CPA-Manager
+  CPAM_REPO: seakee/CPA-Manager-Plus
 
 jobs:
   check:
