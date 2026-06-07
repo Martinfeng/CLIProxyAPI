@@ -23,6 +23,14 @@ docker compose up -d
 
 升级：`docker compose pull && docker compose up -d`
 
+> **从旧版升级（v7.1.50-fork.1 之前装过的看这里）**：服务名从 `cpa-manager` 改成 `cpa-manager-plus`，`docker compose down` 不会清掉旧容器，新容器会撞 `:18317 port is already allocated`。先跑：
+>
+> ```bash
+> docker stop cpa-manager && docker rm cpa-manager
+> docker volume rm cliproxyapi_cpa-manager-data 2>/dev/null || true
+> docker compose pull && docker compose up -d
+> ```
+
 > **重要**：docker-compose 起来后还需要在浏览器里走一次 Plus 的 setup 流程才能用上 Manager Server 的完整能力。详细步骤见每次 [GitHub Release 说明](https://github.com/Martinfeng/CLIProxyAPI/releases/latest)，简要流程：
 >
 > 1. `docker compose logs cpa-manager-plus | grep cmp_admin_` 拿一次性 admin key

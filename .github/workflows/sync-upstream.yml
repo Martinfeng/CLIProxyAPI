@@ -253,6 +253,21 @@ jobs:
 
           升级：\`docker compose pull && docker compose up -d\`
 
+          ## 从旧版升级（v7.1.50-fork.1 之前装过 CPA-Manager 的看这里）
+
+          v7.1.50-fork.1 起 Manager Server 从 \`seakee/cpa-manager\` 切到 \`seakee/cpa-manager-plus\`，docker-compose 里的服务名也从 \`cpa-manager\` 改成 \`cpa-manager-plus\`。**\`docker compose down\` 不会清掉旧名容器**（不在新 compose services 列表里），新容器启动时会撞 \`:18317 port is already allocated\`。
+
+          首次按新版起服务前先清理：
+
+          \`\`\`bash
+          docker stop cpa-manager && docker rm cpa-manager
+          # 顺手回收旧 SQLite（v1.5.5 schema 与 Plus 不兼容，留着没用）
+          docker volume rm cliproxyapi_cpa-manager-data 2>/dev/null || true
+          docker compose pull && docker compose up -d
+          \`\`\`
+
+          全新安装的用户跳过这一节。
+
           ## 首次部署后的操作（必读）
 
           docker-compose 起来后只是把两个服务跑了，**还需要在浏览器走一次 setup 流程**才能用上 Manager Server 的完整能力。
