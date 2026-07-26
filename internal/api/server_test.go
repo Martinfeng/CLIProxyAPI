@@ -1024,11 +1024,22 @@ func TestManagementUsageRequiresManagementAuthAndPopsArray(t *testing.T) {
 	redisqueue.Enqueue([]byte(`{"id":1}`))
 	redisqueue.Enqueue([]byte(`{"id":2}`))
 
-	missingKeyReq := httptest.NewRequest(http.MethodGet, "/v0/management/usage-queue?count=2", nil)
-	missingKeyRR := httptest.NewRecorder()
-	server.engine.ServeHTTP(missingKeyRR, missingKeyReq)
-	if missingKeyRR.Code != http.StatusUnauthorized {
-		t.Fatalf("missing key status = %d, want %d body=%s", missingKeyRR.Code, http.StatusUnauthorized, missingKeyRR.Body.String())
+	protectedRoutes := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/v0/management/usage-queue?count=2"},
+		{method: http.MethodGet, path: "/v0/management/usage-stats"},
+		{method: http.MethodGet, path: "/v0/management/usage-stats/export"},
+		{method: http.MethodPost, path: "/v0/management/usage-stats/import"},
+	}
+	for _, route := range protectedRoutes {
+		missingKeyReq := httptest.NewRequest(route.method, route.path, nil)
+		missingKeyRR := httptest.NewRecorder()
+		server.engine.ServeHTTP(missingKeyRR, missingKeyReq)
+		if missingKeyRR.Code != http.StatusUnauthorized {
+			t.Fatalf("%s %s missing key status = %d, want %d body=%s", route.method, route.path, missingKeyRR.Code, http.StatusUnauthorized, missingKeyRR.Body.String())
+		}
 	}
 
 	legacyReq := httptest.NewRequest(http.MethodGet, "/v0/management/usage?count=2", nil)
