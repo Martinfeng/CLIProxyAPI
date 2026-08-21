@@ -228,6 +228,17 @@ codex:
   identity-confuse: false
   # Disable forcing the official Codex User-Agent and Originator headers on HTTP/SSE and WebSocket requests.
   disable-codex-cloaking: false
+  # Hold back the initial handshake events (response.created, response.in_progress and the
+  # websocket metadata frames) until the upstream emits its first generated event.
+  # Why: the upstream smuggles `server_is_overloaded` rejections *inside* an HTTP 200 stream,
+  # right after those handshake events, instead of returning 503 on the wire. Buffering them
+  # keeps the downstream response headers uncommitted long enough to transparently retry on
+  # another credential. Only overload/rate-limit rejections trigger failover; every other
+  # terminal failure is still delivered in-stream exactly as before.
+  # Trade-off: response headers are delayed until generation starts, which can trip client or
+  # reverse-proxy read timeouts (e.g. nginx proxy_read_timeout) on long reasoning requests.
+  # Default: false
+  stream-bootstrap-buffering: false
   # When true, optimize Codex Desktop, codex-tui, and codex_cli_rs requests for multi-agent v2.
   # This refreshes Codex spawn_agent model details, removes message parameter encryption,
   # normalizes encrypted agent_message content for Codex, and converts agent_message input
@@ -731,6 +742,48 @@ nonstream-keepalive-interval: 0
 #     - "kimi-k2-thinking"
 #   xai:
 #     - "grok-3-mini"
+
+# OAuth provider request-scoped error rules (custom error classification for OAuth credentials)
+# oauth-request-scoped-errors:
+#   vertex:
+#     - status: 400
+#       match:
+#         - "maximum_context_length"
+#         - "context_length_exceeded"
+#       match-regexr:
+#         - "maximum_context_length$"
+#         - "^context_length_exceeded"
+#       action: "stop" # options: "stop", "stop-and-cooldown", "continue", "continue-and-cooldown"
+#   aistudio:
+#     - status: 400
+#       match:
+#         - "invalid_argument"
+#       action: "stop"
+#   antigravity:
+#     - status: 500
+#       match:
+#         - "internal_server_error"
+#       action: "stop-and-cooldown"
+#   claude:
+#     - status: 400
+#       match:
+#         - "prompt is too long"
+#       action: "stop"
+#   codex:
+#     - status: 400
+#       match:
+#         - "context_window_exceeded"
+#       action: "stop"
+#   kimi:
+#     - status: 400
+#       match:
+#         - "length_limit"
+#       action: "stop"
+#   xai:
+#     - status: 400
+#       match:
+#         - "max_tokens_exceeded"
+#       action: "stop"
 
 # Optional payload configuration
 # payload:
