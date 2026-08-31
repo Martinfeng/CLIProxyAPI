@@ -599,6 +599,7 @@ func TestUsageReporterTrackHTTPClientRoundTripOnly_DoesNotTriggerOnBodyRead(t *t
 	reporter := NewUsageReporter(context.Background(), "codex", "gpt-5.6-luna", nil)
 	client := reporter.TrackHTTPClientRoundTripOnly(&http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			time.Sleep(10 * time.Millisecond)
 			return &http.Response{
 				StatusCode: http.StatusOK,
 				Status:     "200 OK",
