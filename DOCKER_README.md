@@ -20,13 +20,15 @@ curl -O https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/docker-com
 curl -o config.yaml https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/config.example.yaml
 curl -o .env https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/.env.example
 # 编辑 .env，把 MANAGEMENT_KEY 换成你自己的密码（openssl rand -hex 24 之类）
-# 编辑 config.yaml，把 api-keys 段那三个 your-api-key-X 占位删了或换成真 key
+# 编辑 config.yaml，把 access.api-keys 段那三个 your-api-key-X 占位删了或换成真 key
 docker compose up -d
 ```
 
 升级：`docker compose pull && docker compose up -d`
 
-> **一个密码到底（v7.1.50-fork.1 起）**：`.env` 里的 `MANAGEMENT_KEY` 同时注入到 CPA 的 `MANAGEMENT_PASSWORD` 和 Plus 的 `CPA_MANAGER_ADMIN_KEY`。Plus setup 页问 admin key 和 CPA management key 时**两次填同一个值**就行；`config.yaml` 里 `remote-management.secret-key` 保持空字符串。没设 `MANAGEMENT_KEY` `docker compose up` 会直接报错不启动（避免裸跑无密码）。
+> **一个密码到底（v7.1.50-fork.1 起）**：`.env` 里的 `MANAGEMENT_KEY` 同时注入到 CPA 的 `MANAGEMENT_PASSWORD` 和 Plus 的 `CPA_MANAGER_ADMIN_KEY`。Plus setup 页问 admin key 和 CPA management key 时**两次填同一个值**就行；v8 `config.yaml` 里 `management.secret-key` 保持空字符串。没设 `MANAGEMENT_KEY` `docker compose up` 会直接报错不启动（避免裸跑无密码）。
+
+> **v8 配置**：新模板把客户端密钥放在 `access.api-keys`，管理配置放在 `management`。旧版配置及 `/v0/management` 接口仍兼容；不要在同一个配置里重复设置新旧字段，v8 字段会优先。
 
 > **从旧版升级（v7.1.50-fork.1 之前装过的看这里）**：服务名从 `cpa-manager` 改成 `cpa-manager-plus`，`docker compose down` 不会清掉旧容器，新容器会撞 `:18317 port is already allocated`。先跑：
 >
