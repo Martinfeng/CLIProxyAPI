@@ -1,49 +1,15 @@
-# One-click deployment for CLI Proxy API fork + CPA-Manager-Plus (Manager Server).
-#
-# Initial install:
-#
-#   curl -O https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/docker-compose.yml
-#   curl -o config.yaml https://raw.githubusercontent.com/Martinfeng/CLIProxyAPI/main/config.example.yaml
-#   docker compose up -d
-#
-# First-run setup (REQUIRED):
-#   1. Grab the auto-generated Manager admin key (printed once on first
-#      start of the Manager Server):
-#        docker compose logs cpa-manager-plus | grep -E 'cmp_admin_|admin key'
-#   2. Open  http://localhost:18317/management.html
-#   3. On the setup page, fill:
-#        Manager admin key   -> the cmp_admin_... from step 1
-#        CPA URL             -> http://cli-proxy-api:8317
-#        CPA Management Key  -> the secret-key you set in config.yaml under
-#                               remote-management.secret-key
-#   4. Future logins only need the Manager admin key. The CPA Management
-#      Key is stored server-side, encrypted by the Manager data key.
-#
-# Notes:
-#   - http://localhost:8317/management.html still works for pure CPA admin,
-#     but in Plus mode the monitoring / usage / model-prices / api-key
-#     alias / Codex inspection panels are intentionally disabled there;
-#     full features only show up via :18317.
-#   - Upgrade with: docker compose pull && docker compose up -d
-#     Binaries live in the images, only data sub-paths are persisted, so
-#     image updates flow cleanly with no volume reset.
-
+# Official CLIProxyAPI + CPA-Manager-Plus deployment.
+# Keep the service names, data mounts, and Compose project name when upgrading.
+# No source checkout, image build, or custom CPA binary is required.
 services:
   cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-kaelsen/cli-proxy-api:latest}
+    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
     pull_policy: always
     container_name: cli-proxy-api
     restart: unless-stopped
     environment:
       DEPLOY: ${DEPLOY:-}
-      # Single shared password. Set MANAGEMENT_KEY once in the sibling
-      # .env file; CPA accepts it as the management secret (line 283 of
-      # internal/api/handlers/management/handler.go matches the provided
-      # bearer token against this env directly, no bcrypt hashing), so
-      # config.yaml's remote-management.secret-key can stay empty.
-      MANAGEMENT_PASSWORD: ${MANAGEMENT_KEY:?MANAGEMENT_KEY is required. Copy .env.example to .env and edit it before starting compose.}
-      # Bypass any host-injected HTTP proxy (e.g. Docker Desktop forwards
-      # the host's HTTP_PROXY into containers) for inter-service traffic.
+      MANAGEMENT_PASSWORD: ${MANAGEMENT_KEY:?MANAGEMENT_KEY is required. Copy .env.example to .env and set a strong password.}
       NO_PROXY: cpa-manager-plus,cli-proxy-api,localhost,127.0.0.1
       no_proxy: cpa-manager-plus,cli-proxy-api,localhost,127.0.0.1
     ports:
@@ -71,15 +37,8 @@ services:
     environment:
       HTTP_ADDR: "0.0.0.0:18317"
       USAGE_DB_PATH: "/data/usage.sqlite"
-      # Same MANAGEMENT_KEY the CPA service uses. The setup wizard will
-      # ask for it twice (Manager admin key + CPA management key) - paste
-      # the same value both times.
-      CPA_MANAGER_ADMIN_KEY: ${MANAGEMENT_KEY:?MANAGEMENT_KEY is required. Copy .env.example to .env and edit it before starting compose.}
-      # Encryption key for CPA management secrets stored server-side.
-      # Generated and cached automatically when the file does not exist.
+      CPA_MANAGER_ADMIN_KEY: ${MANAGEMENT_KEY:?MANAGEMENT_KEY is required. Copy .env.example to .env and set a strong password.}
       CPA_MANAGER_DATA_KEY_PATH: "/data/data.key"
-      # Collector defaults match Plus official docker-compose.manager.yml.
-      # `auto` tries RESP Pub/Sub -> HTTP queue -> RESP pop in order.
       USAGE_COLLECTOR_MODE: "auto"
       USAGE_RESP_QUEUE: "usage"
       USAGE_RESP_POP_SIDE: "right"

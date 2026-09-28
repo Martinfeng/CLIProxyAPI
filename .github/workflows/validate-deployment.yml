@@ -1,0 +1,46 @@
+name: Validate official-image deployment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      MANAGEMENT_KEY: ci-official-images-smoke-only
+      COMPOSE_PROJECT_NAME: cpa-official-ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare disposable configuration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          config = Path("config.example.yaml").read_text()
+          assert config.count("your-api-key-1") == 1
+          Path("config.yaml").write_text(config.replace("your-api-key-1", "ci-client-key-only"))
+          PY
+      - name: Validate official images and persistent mounts
+        run: |
+          docker compose config --quiet
+          docker compose config --format json | python3 .github/scripts/validate-deployment.py
+          python3 -m py_compile .github/scripts/*.py
+      - name: Start official images
+        run: docker compose up -d --no-build --pull always
+      - name: Verify setup and history after container recreation
+        run: python3 .github/scripts/smoke-deployment.py
+      - name: Show container status
+        if: always()
+        run: docker compose ps -a
+      - name: Stop disposable containers
+        if: always()
+        run: docker compose down
