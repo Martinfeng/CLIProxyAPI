@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/router-for-me/CLIProxyAPI/v7/internal/usage"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/usage"
 )
 
 type usageExportPayload struct {
@@ -20,8 +20,8 @@ type usageImportPayload struct {
 	Usage   usage.StatisticsSnapshot `json:"usage"`
 }
 
-// 通过包级 getter 获取 stats 单例，避免在 Handler 结构体上挂 fork-only 字段。
-// 这样 handler.go 不需要 fork 改动，能干净地随 upstream 同步。
+// Access the shared statistics without adding fork-only fields to Handler,
+// keeping handler.go compatible with upstream changes.
 func usageStatsRef() *usage.RequestStatistics {
 	return usage.GetRequestStatistics()
 }
