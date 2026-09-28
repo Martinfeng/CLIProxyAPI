@@ -49,7 +49,12 @@ jobs:
           echo "Our upstream base: $OUR_UPSTREAM_VERSION"
 
           # Check if upstream has a newer release
-          TAG_ONLY=false
+          FORCE_BUILD=false
+          FORK_HEAD=$(git rev-parse HEAD)
+          RELEASE_HEAD=""
+          if [ -n "$OUR_TAG" ]; then
+            RELEASE_HEAD=$(git rev-parse --verify "refs/tags/${OUR_TAG}^{commit}" 2>/dev/null || true)
+          fi
           if [ -z "$UPSTREAM_TAG" ]; then
             if [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
               echo "Upstream release unavailable, but upstream branch has new commits"
@@ -61,7 +66,7 @@ jobs:
           elif [ "$UPSTREAM_TAG" != "$OUR_UPSTREAM_VERSION" ]; then
             if [ "$MERGE_BASE" = "$UPSTREAM_HEAD" ]; then
               echo "New upstream release $UPSTREAM_TAG points to already-merged commit ${UPSTREAM_HEAD:0:7}; forcing build for release"
-              TAG_ONLY=true
+              FORCE_BUILD=true
             else
               echo "New upstream release detected: $UPSTREAM_TAG (ours: $OUR_UPSTREAM_VERSION)"
             fi
@@ -69,21 +74,25 @@ jobs:
           elif [ "$MERGE_BASE" != "$UPSTREAM_HEAD" ]; then
             echo "Upstream branch has new commits beyond our synced release"
             echo "needs_sync=true" >> $GITHUB_OUTPUT
+          elif [ "$RELEASE_HEAD" != "$FORK_HEAD" ]; then
+            echo "Fork commit $FORK_HEAD has not been released; retrying build"
+            FORCE_BUILD=true
+            echo "needs_sync=true" >> $GITHUB_OUTPUT
           else
             echo "Fork already contains upstream release and branch head"
             echo "needs_sync=false" >> $GITHUB_OUTPUT
           fi
-          echo "tag_only=$TAG_ONLY" >> $GITHUB_OUTPUT
+          echo "force_build=$FORCE_BUILD" >> $GITHUB_OUTPUT
 
       - name: Trigger sync workflow
         if: steps.check.outputs.needs_sync == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_ONLY: ${{ steps.check.outputs.tag_only }}
+          FORCE_BUILD: ${{ steps.check.outputs.force_build }}
         run: |
-          if [ "$TAG_ONLY" = "true" ]; then
+          if [ "$FORCE_BUILD" = "true" ]; then
             gh workflow run sync-upstream.yml --repo ${{ github.repository }} -f force_build=true
-            echo "Triggered sync-upstream workflow (force_build=true, tag-only upstream release)"
+            echo "Triggered sync-upstream workflow (force_build=true, pending release)"
           else
             gh workflow run sync-upstream.yml --repo ${{ github.repository }}
             echo "Triggered sync-upstream workflow"

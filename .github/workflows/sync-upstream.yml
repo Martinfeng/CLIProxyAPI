@@ -13,7 +13,12 @@ permissions:
   contents: write
   issues: write
 
+concurrency:
+  group: sync-upstream-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
+  GH_REPO: ${{ github.repository }}
   UPSTREAM_REPO: router-for-me/CLIProxyAPI
   UPSTREAM_BRANCH: main
   DOCKERHUB_REPO: ${{ vars.DOCKERHUB_REPO || 'kaelsen/cli-proxy-api' }}
@@ -24,10 +29,12 @@ jobs:
     outputs:
       has_changes: ${{ steps.sync.outputs.has_changes }}
       new_version: ${{ steps.version.outputs.version }}
+      synced_sha: ${{ steps.revision.outputs.sha }}
     steps:
       - name: Checkout fork
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -47,6 +54,8 @@ jobs:
           # Get the merge base and upstream head
           MERGE_BASE=$(git merge-base HEAD upstream/${{ env.UPSTREAM_BRANCH }}) || true
           UPSTREAM_HEAD=$(git rev-parse upstream/${{ env.UPSTREAM_BRANCH }})
+          echo "Fork head: $(git rev-parse HEAD)"
+          echo "Upstream head: $UPSTREAM_HEAD"
 
           if [ "$MERGE_BASE" = "$UPSTREAM_HEAD" ]; then
             echo "No new commits from upstream"
@@ -127,11 +136,6 @@ jobs:
             git commit --no-edit
             echo "Merge successful"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-
-            if ! git push origin ${{ github.ref_name }}; then
-              echo "::error::Push failed. Check token/repository permissions."
-              exit 1
-            fi
           else
             echo "No changes to merge"
             if [ "${{ inputs.force_build }}" = "true" ]; then
@@ -141,6 +145,29 @@ jobs:
               echo "has_changes=false" >> $GITHUB_OUTPUT
             fi
           fi
+
+      - name: Set up Go
+        if: steps.sync.outputs.has_changes == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate merged code before pushing
+        if: steps.sync.outputs.has_changes == 'true'
+        run: |
+          go test ./internal/usage ./internal/cmd ./cmd/server
+          go build -o test-output ./cmd/server
+          rm test-output
+
+      - name: Push validated merge and record revision
+        id: revision
+        if: steps.sync.outputs.has_changes == 'true'
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Generate version
         id: version
@@ -178,7 +205,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ needs.sync-upstream.outputs.synced_sha }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -250,7 +277,7 @@ jobs:
           curl -o config.yaml https://raw.githubusercontent.com/${{ github.repository }}/main/config.example.yaml
           curl -o .env https://raw.githubusercontent.com/${{ github.repository }}/main/.env.example
           # 编辑 .env，把 MANAGEMENT_KEY 换成你自己的密码（openssl rand -hex 24 之类）
-          # 编辑 config.yaml，把 api-keys 段那三个 your-api-key-X 占位删了或换成真 key（见步骤 2 详解）
+          # 编辑 config.yaml，把 access.api-keys 段那三个 your-api-key-X 占位删了或换成真 key（见步骤 2 详解）
           docker compose up -d
           \`\`\`
 
@@ -261,7 +288,7 @@ jobs:
           fork 已经把 \`MANAGEMENT_KEY\` 统一同时注入到 CPA 的 \`MANAGEMENT_PASSWORD\` 和 Plus 的 \`CPA_MANAGER_ADMIN_KEY\`。所以：
 
           - 你**只用记一个密码**（\`.env\` 里那一行）。
-          - CPA 的 \`config.yaml\` 里 \`remote-management.secret-key\` 保持空字符串，CPA 直接走 env 校验（明文比对，line 283 of \`internal/api/handlers/management/handler.go\`），不再哈希写回。
+          - CPA 的 \`config.yaml\` 里 \`management.secret-key\` 保持空字符串，CPA 直接走 env 校验，不再哈希写回。旧配置中的 \`remote-management.secret-key\` 仍兼容。
           - Plus 启动日志会显示 \`CPA Manager Plus admin credential initialized\`，而不是之前那种一次性 \`cmp_admin_...\` 生成提示——因为 env 已经提供了。
           - Plus setup 页问"Manager 管理员密钥"和"CPA Management Key"两次时，**两次都填同一个值**就是 \`.env\` 里那个 \`MANAGEMENT_KEY\`。
 
@@ -297,30 +324,33 @@ jobs:
 
           ### 步骤 2：处理 \`./config.yaml\`（safemode + management key）
 
-          \`config.example.yaml\` 第 39-42 行有三个 \`your-api-key-1/2/3\` 占位。CPA fork 启动时会检测这些占位、进入 safemode 只起一个警告页（日志能看到 \`unsafe example API key configured\`，\`:8317\` 此时返回的不是正常 API 而是一个 HTML 警告页）。setup 时 Plus 容器调 \`http://cli-proxy-api:8317\` 拿到的也是这个 HTML 警告页、解析失败 → 浏览器报 **网络连接失败**。
+          v8 的 \`config.example.yaml\` 在 \`access.api-keys\` 下有三个 \`your-api-key-1/2/3\` 占位。CPA fork 启动时会检测这些占位、进入 safemode 只起一个警告页（日志能看到 \`unsafe example API key configured\`，\`:8317\` 此时返回的不是正常 API 而是一个 HTML 警告页）。setup 时 Plus 容器调 \`http://cli-proxy-api:8317\` 拿到的也是这个 HTML 警告页、解析失败 → 浏览器报 **网络连接失败**。
 
           编辑 \`./config.yaml\`，两件事一起做：
 
-          **1. 替换或清空 \`api-keys\`**（必做，否则 safemode 一直拦着）：
+          **1. 替换或清空 \`access.api-keys\`**（必做，否则 safemode 一直拦着）：
 
           - 用 OpenAI 兼容 API 转发功能 → 换成你自己生成的真 key（\`openssl rand -hex 24\` 之类）
-          - 不用 → 直接清空：\`api-keys: []\`
+          - 不用 → 把 \`access\` 下的 \`api-keys\` 设为 \`[]\`
 
           \`\`\`yaml
           # 之前
-          api-keys:
-            - "your-api-key-1"
-            - "your-api-key-2"
-            - "your-api-key-3"
+          access:
+            api-keys:
+              - "your-api-key-1"
+              - "your-api-key-2"
+              - "your-api-key-3"
 
           # 之后（任选其一）
-          api-keys: []
+          access:
+            api-keys: []
           # 或
-          api-keys:
-            - "sk-你生成的真实随机字符串"
+          access:
+            api-keys:
+              - "sk-你生成的真实随机字符串"
           \`\`\`
 
-          **2. 不要动 \`remote-management.secret-key\`**：保持空字符串。CPA 已经通过 \`MANAGEMENT_PASSWORD\` env（由 \`.env\` 注入）校验，不需要也别在 config.yaml 再设一份（设了会被 CPA 启动时哈希、把明文丢掉、跟 Plus 端 env 对不上）。
+          **2. 不要动 \`management.secret-key\`**：保持空字符串。CPA 已经通过 \`MANAGEMENT_PASSWORD\` env（由 \`.env\` 注入）校验，不需要也别在 config.yaml 再设一份（设了会被 CPA 启动时哈希、把明文丢掉、跟 Plus 端 env 对不上）。旧版配置和 \`/v0/management\` 接口仍受支持；新配置请使用 v8 层级，避免同时设置新旧字段。
 
           完成后：
 
@@ -390,9 +420,9 @@ jobs:
           - **Panel 上游:** [seakee/CPA-Manager](https://github.com/seakee/CPA-Manager)
           EOF
 
-          # Create release (delete existing if same version)
-          gh release delete "${{ env.VERSION }}" --yes 2>/dev/null || true
+          # Publish the exact commit used for the image build.
           gh release create "${{ env.VERSION }}" \
+            --target "${{ needs.sync-upstream.outputs.synced_sha }}" \
             --title "Release ${{ env.VERSION }}" \
             --notes-file release-notes.md \
             --latest
