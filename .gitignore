@@ -1,69 +1,28 @@
-# Binaries
-cli-proxy-api
-*.exe
+# Local configuration, credentials, runtime data, and backups.
+/.env
+/.env.*
+!/.env.example
+/config.yaml
+/auths/*
+!/auths/.gitkeep
+/logs/
+/plugins/
+/static/
+/backups/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+/docker-compose.override.yml
 
-# Configuration
-config.yaml
-.env
-
-# Generated content
-bin/*
-/logs
-conv/*
-temp/*
-refs/*
-plugins/*
-examples/plugin/bin/*
-
-# Storage backends
-pgstore/*
-gitstore/*
-objectstore/*
-
-# Static assets
-static/*
-
-# Authentication data
-auths/*
-/auths
-!auths/.gitkeep
-
-# Documentation
-docs/*
-!docs/management-api-v8.md
-AGENTS.md
-CLAUDE.md
-GEMINI.md
-AGENTS.override.md
-
-# Tooling metadata
-.vscode/*
-.worktrees/
-.codex/*
-.claude/*
-.claude
-.gemini/*
-.serena/*
-.agent/*
-.agents
-.pi
-.agents/*
-.opencode/*
-.idea/*
-.beads/*
-.bmad/*
-_bmad/*
-_bmad-output/*
-.gocache/
-.gitnexus/
-
-# macOS
+# Local tools and editor state.
+__pycache__/
 .DS_Store
 ._*
-
-# docker
-docker-compose.override.yml
-
-
-# Local LLM Wiki vault
-.llm-wiki
+/.vscode/
+/.idea/
+/.worktrees/
+/.codex/
+/.claude/
+/.agents/
+/.gocache/
+/.llm-wiki/
